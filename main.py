@@ -1,58 +1,67 @@
-import requests
+import json
 import re
+import requests
 from flask import Flask, redirect, Response
 
 app = Flask(__name__)
 
-# لیستی APIیەکانی Invidious
-INVIDIOUS_INSTANCES = [
-    "https://inv.us.projectsegfau.lt",
-    "https://invidious.nerdvpn.de",
-    "https://invidious.drgns.space",
-    "https://vid.mnp.gl"
-]
-
-def get_hls_url(video_id):
-    # ڕێگای یەکەم: وەرگرتن لە ڕێگەی Invidious API
-    for instance in INVIDIOUS_INSTANCES:
-        try:
-            url = f"{instance}/api/v1/videos/{video_id}"
-            res = requests.get(url, timeout=4)
-            if res.status_code == 200:
-                data = res.json()
-                hls_url = data.get('hlsUrl')
-                if hls_url:
-                    return hls_url
-        except Exception:
-            continue
-
-    # ڕێگای دووەم (Backup): دەرهێنانی ڕاستەوخۆی hlsManifestUrl
+def extract_m3u8_ios_client(video_id):
+    """
+    سەرکەوتووترین ڕێگا: فێڵکردن لە یوتوب لە ڕێگەی ناردنی داواکاری وەک ئەپی iOS
+    """
+    url = "https://www.youtube.com/youtubei/v1/player"
+    
+    # payloadی ئامادەکراوی iOS کە یوتوب هیچ کات بلۆکی ناكات
+    payload = {
+        "videoId": video_id,
+        "context": {
+            "client": {
+                "clientName": "IOS",
+                "clientVersion": "19.29.1",
+                "deviceModel": "iPhone14,3",
+                "osName": "iOS",
+                "osVersion": "17.5.1.21F90",
+                "hl": "en",
+                "gl": "US"
+            }
+        }
+    }
+    
+    headers = {
+        "Content-Type": "application/json",
+        "User-Agent": "com.google.ios.youtube/19.29.1 (iPhone14,3; U; CPU iOS 17_5_1 like Mac OS X; en_US)"
+    }
+    
     try:
-        yt_page = requests.get(f"https://www.youtube.com/watch?v={video_id}", headers={
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-        }, timeout=4).text
+        response = requests.post(url, json=payload, headers=headers, timeout=10)
+        if response.status_code == 200:
+            data = response.json()
+            
+            # وەرگرتنی لینکی m3u8 لە بەشی streamingData
+            streaming_data = data.get("streamingData", {})
+            hls_manifest_url = streaming_data.get("hlsManifestUrl")
+            
+            if hls_manifest_url:
+                return hls_manifest_url
+    except Exception as e:
+        print(f"Error fetching stream: {e}")
         
-        match = re.search(r'"hlsManifestUrl":"([^"]+)"', yt_page)
-        if match:
-            manifest_url = match.group(1).replace(r'\/', '/')
-            return manifest_url
-    except Exception:
-        pass
-
     return None
 
 @app.route('/live/<video_id>')
 def play_live(video_id):
-    m3u8_url = get_hls_url(video_id)
+    # کاتێک لینکەکە دەکرێتەوە ڕاستەوخۆ دەچێتە سەر لینکی m3u8ی نوێ
+    m3u8_url = extract_m3u8_ios_client(video_id)
     if m3u8_url:
         return redirect(m3u8_url, code=302)
-    return "Error: Could not extract m3u8 stream", 404
+    return f"Error: Could not extract stream for '{video_id}'", 404
 
 @app.route('/playlist.m3u')
 def generate_playlist():
     host = Flask.request.host_url
+    # کەناڵی لایڤی ۲٤/٧ی خۆت
     channels = [
-        {"name": "Live Channel", "id": "ijvDN4ex_BQ"}
+        {"name": "24/7 Live Stream", "id": "hhkVU_7qZzM"}
     ]
     m3u_content = "#EXTM3U\n"
     for ch in channels:
