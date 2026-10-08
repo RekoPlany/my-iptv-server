@@ -60,8 +60,7 @@ def generate_playlist():
     """دروستکردنی فایلی IPTV Playlist بۆ ئەو لایڤانەی دەتەوێت"""
     # لیستی ڤیدیۆ/لایڤەکانی یوتوب (Video ID لە کۆتایی لینکەکە دەستدەکەوێت)
     CHANNELS = [
-        {"name": "کەناڵی یەکەم", "id": "YOUR_VIDEO_ID_1"},
-        {"name": "کەناڵی دووەم", "id": "YOUR_VIDEO_ID_2"},
+        {"name": "کەناڵی یەکەم", "id": "ijvDN4ex_BQ"},
     ]
     
     host = Flask.request.host_url
