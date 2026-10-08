@@ -1,61 +1,63 @@
 import requests
+import re
 from flask import Flask, redirect, Response
 
 app = Flask(__name__)
 
-# لیستی سێرڤەرە سەربەخۆکانی Piped/Invidious (بۆ ئەوەی ئەگەر یەکێکیان کاری نەکرد ئەوی تر کاربکات)
-PIPED_INSTANCES = [
-    "https://pipedapi.kavin.rocks",
-    "https://api.piped.private.coffee",
-    "https://pipedapi.lunar.icu",
-    "https://piped-api.garudalinux.org"
+# لیستی APIیەکانی Invidious
+INVIDIOUS_INSTANCES = [
+    "https://inv.us.projectsegfau.lt",
+    "https://invidious.nerdvpn.de",
+    "https://invidious.drgns.space",
+    "https://vid.mnp.gl"
 ]
 
-def fetch_m3u8_from_piped(video_id):
-    """رێگای پڕۆفێشناڵ: وەرگرتنی m3u8 لە ڕێگەی Piped API بۆ خۆدوورخستنەوە لە بلۆکی یوتوب"""
-    for instance in PIPED_INSTANCES:
+def get_hls_url(video_id):
+    # ڕێگای یەکەم: وەرگرتن لە ڕێگەی Invidious API
+    for instance in INVIDIOUS_INSTANCES:
         try:
-            url = f"{instance}/streams/{video_id}"
-            response = requests.get(url, timeout=5)
-            if response.status_code == 200:
-                data = response.json()
-                
-                # 1. پشکنینی لینکی m3u8 یان HLS لە ئەنجامەکەدا
-                hls_url = data.get('hls')
+            url = f"{instance}/api/v1/videos/{video_id}"
+            res = requests.get(url, timeout=4)
+            if res.status_code == 200:
+                data = res.json()
+                hls_url = data.get('hlsUrl')
                 if hls_url:
                     return hls_url
-                
-                # 2. ئەگەر لە بەشی سەرەکی نەبوو، گەڕان لەناو بەشی streams
-                for stream in data.get('streams', []):
-                    if stream.get('format') == 'HLS' or stream.get('quality') == 'auto':
-                        return stream.get('url')
         except Exception:
             continue
+
+    # ڕێگای دووەم (Backup): دەرهێنانی ڕاستەوخۆی hlsManifestUrl
+    try:
+        yt_page = requests.get(f"https://www.youtube.com/watch?v={video_id}", headers={
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+        }, timeout=4).text
+        
+        match = re.search(r'"hlsManifestUrl":"([^"]+)"', yt_page)
+        if match:
+            manifest_url = match.group(1).replace(r'\/', '/')
+            return manifest_url
+    except Exception:
+        pass
+
     return None
 
 @app.route('/live/<video_id>')
 def play_live(video_id):
-    """کە لینکەکە دەکرێتەوە لە IPTV/VLC، ڕاستەوخۆ دەبڕێت بۆ لینکی m3u8"""
-    m3u8_link = fetch_m3u8_from_piped(video_id)
-    if m3u8_link:
-        return redirect(m3u8_link, code=302)
+    m3u8_url = get_hls_url(video_id)
+    if m3u8_url:
+        return redirect(m3u8_url, code=302)
     return "Error: Could not extract m3u8 stream", 404
 
 @app.route('/playlist.m3u')
 def generate_playlist():
-    """فایلی M3U Playlist بۆ بەرنامەی IPTV"""
     host = Flask.request.host_url
-    
-    # ئایدی کەناڵ یان لایڤەکانت لێرە دابنێ
     channels = [
-        {"name": "Live Channel 1", "id": "ijvDN4ex_BQ"}
+        {"name": "Live Channel", "id": "ijvDN4ex_BQ"}
     ]
-    
     m3u_content = "#EXTM3U\n"
     for ch in channels:
         m3u_content += f'#EXTINF:-1 tvg-id="{ch["id"]}" tvg-name="{ch["name"]}", {ch["name"]}\n'
         m3u_content += f'{host}live/{ch["id"]}\n'
-        
     return Response(m3u_content, mimetype='text/plain')
 
 if __name__ == '__main__':
